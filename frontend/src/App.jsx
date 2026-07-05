@@ -83,6 +83,9 @@ function App() {
         sender: 'ai',
         text: data.output || 'Kuch galat ho gaya, yaar.',
         think: data.think || '',
+        myVideos: data.myVideos || [],
+        otherVideos: data.otherVideos || [],
+        otherPersona: data.otherPersona || '',
         persona,
         timestamp: new Date(),
       };
@@ -209,6 +212,66 @@ function App() {
                   >
                     {msg.text}
                   </div>
+
+                  {msg.sender === 'ai' && (msg.myVideos?.length > 0 || msg.otherVideos?.length > 0) && (
+                    <div className="mt-3.5 space-y-4">
+
+                      {msg.myVideos?.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-bold text-[#D97757] tracking-wider uppercase">
+                            📺 {PERSONAS[msg.persona]?.label || 'My'} ke Videos
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {msg.myVideos.map(video => (
+                              <a
+                                key={video.id}
+                                href={video.type === 'playlist'
+                                  ? `https://www.youtube.com/playlist?list=${video.id}`
+                                  : `https://www.youtube.com/watch?v=${video.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-3 p-2 bg-[#2D2C2A] hover:bg-[#33322F] border border-[#3F3E3A] hover:border-[#D97757]/40 rounded-xl transition text-left group shadow-sm"
+                              >
+                                <img src={video.thumbnail} className="w-20 h-12 object-cover rounded-lg flex-shrink-0" alt="" />
+                                <div className="min-w-0">
+                                  <p className="text-[12px] font-semibold text-[#ECEAE4] line-clamp-2 leading-snug group-hover:text-[#D97757] transition-colors">{video.title}</p>
+                                  <span className="text-[10px] text-[#6F6D67]">{video.type === 'playlist' ? '📁 Playlist' : '▶ Watch on YouTube'}</span>
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {msg.otherVideos?.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-bold text-[#8B8AE5] tracking-wider uppercase">
+                            🤝 {PERSONAS[msg.otherPersona]?.label || 'Other Sir'} ke bhi Videos hain!
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {msg.otherVideos.map(video => (
+                              <a
+                                key={video.id}
+                                href={video.type === 'playlist'
+                                  ? `https://www.youtube.com/playlist?list=${video.id}`
+                                  : `https://www.youtube.com/watch?v=${video.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-3 p-2 bg-[#2A2A3A] hover:bg-[#30304A] border border-[#3A3A5A] hover:border-[#8B8AE5]/40 rounded-xl transition text-left group shadow-sm"
+                              >
+                                <img src={video.thumbnail} className="w-20 h-12 object-cover rounded-lg flex-shrink-0" alt="" />
+                                <div className="min-w-0">
+                                  <p className="text-[12px] font-semibold text-[#ECEAE4] line-clamp-2 leading-snug group-hover:text-[#8B8AE5] transition-colors">{video.title}</p>
+                                  <span className="text-[10px] text-[#6F6D67]">{video.type === 'playlist' ? '📁 Playlist' : '▶ Watch on YouTube'}</span>
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+                  )}
                 </div>
 
                 {msg.sender === 'user' && (
