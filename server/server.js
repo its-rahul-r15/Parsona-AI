@@ -84,13 +84,18 @@ Rules:
 - "OUTPUT" hi asal jawaab hai jo persona ki full tone, style aur catchphrases follow karega.
 - Strictly JSON format follow karo, koi extra text ya markdown fences nahi.
 
+Video Recommendation:
+- Jab bhi user kisi technical topic ke baare mein baat kare (jaise REST API, database, React, backend, Node.js etc), tab OUTPUT step mein ek "searchQuery" field do — jismein us topic ka short YouTube search query ho (jaise "REST API", "Node.js backend", "React hooks"). Ye query YouTube pe videos dhoondhne ke liye use hogi.
+- Agar user specifically video, course, tutorial, resource, ya playlist maange tab toh zaroor searchQuery do.
+- Agar topic bilkul non-technical hai (casual greeting, joke, etc) tab searchQuery empty string "" rakho.
+
 Output Format (ek object per step, sequentially):
-{ "step": "THINK" | "OUTPUT", "text": "<content>" }
+{ "step": "THINK" | "OUTPUT", "text": "<content>", "searchQuery": "<short topic query for YouTube or empty string>" }
 
 Example:
 USER: "REST API kya hoti hai?"
-{ "step": "THINK", "text": "User REST API ka basic concept samajhna chahta hai, explain with analogy." }
-{ "step": "OUTPUT", "text": "<persona tone mein poora answer yahan>" }
+{ "step": "THINK", "text": "User REST API ka basic concept samajhna chahta hai, explain with analogy.", "searchQuery": "" }
+{ "step": "OUTPUT", "text": "<persona tone mein poora answer yahan>", "searchQuery": "REST API" }
 `.trim();
 }
 
@@ -101,6 +106,7 @@ async function runPersonaPipeline(prompt = '', personaKey = 'hitesh') {
 
     let thinkText = "";
     let outputText = "";
+    let searchQuery = "";
     let attempts = 0;
 
     while (attempts < 5) {
@@ -121,10 +127,12 @@ async function runPersonaPipeline(prompt = '', personaKey = 'hitesh') {
             console.warn("JSON.parse failed. Attempting regex fallback parsing...");
             const stepMatch = rawResult.match(/"step"\s*:\s*"([^"]+)"/i);
             const textMatch = rawResult.match(/"text"\s*:\s*"([\s\S]*?)"\s*[,}]/);
+            const queryMatch = rawResult.match(/"searchQuery"\s*:\s*"([^"]*)"/i);
             if (stepMatch && textMatch) {
                 parsedResult = {
                     step: stepMatch[1],
-                    text: textMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"')
+                    text: textMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"'),
+                    searchQuery: queryMatch ? queryMatch[1] : ""
                 };
             } else {
                 console.error("Failed to parse JSON response from Gemini API.");
@@ -138,10 +146,12 @@ async function runPersonaPipeline(prompt = '', personaKey = 'hitesh') {
             for (const item of parsedResult) {
                 const step = item.step || item.Step || '';
                 const text = item.text || item.Text || '';
+                const q = item.searchQuery || item.SearchQuery || '';
                 if (step.toLowerCase() === 'think') {
                     thinkText += (thinkText ? "\n" : "") + text;
                 } else {
                     outputText += (outputText ? "\n" : "") + text;
+                    if (q) searchQuery = q;
                 }
             }
             break;
@@ -149,17 +159,75 @@ async function runPersonaPipeline(prompt = '', personaKey = 'hitesh') {
 
         const step = parsedResult.step || parsedResult.Step || '';
         const text = parsedResult.text || parsedResult.Text || '';
+        const q = parsedResult.searchQuery || parsedResult.SearchQuery || '';
 
         if (step.toLowerCase() === 'think') {
             thinkText += (thinkText ? "\n" : "") + text;
         } else {
             outputText += (outputText ? "\n" : "") + text;
+            if (q) searchQuery = q;
             break;
         }
     }
 
-    return { think: thinkText, output: outputText };
+    return { think: thinkText, output: outputText, searchQuery };
 }
+
+/* ---------------------------------------------------------
+   YOUTUBE API HELPER
+ --------------------------------------------------------- */
+
+async function searchYouTubeChannel(query, channelId, channelOwner, apiKey) {
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&q=${encodeURIComponent(query)}&maxResults=3&type=video,playlist&key=${apiKey}`;
+    try {
+        const response = await fetch(url);
+        if (!response.ok) return [];
+        const data = await response.json();
+        return (data.items || []).map(item => {
+            const isPlaylist = item.id.kind === 'youtube#playlist';
+            return {
+                id: isPlaylist ? item.id.playlistId : item.id.videoId,
+                title: item.snippet.title,
+                thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+                type: isPlaylist ? 'playlist' : 'video',
+                channel: channelOwner
+            };
+        });
+    } catch (error) {
+        console.error(`Error fetching YouTube videos for ${channelOwner}:`, error);
+        return [];
+    }
+}
+
+const CHANNEL_IDS = {
+    hitesh: 'UCNQ6FEtztATuaVhZKCY28Yw',
+    piyush: 'UCf9T51_FmMlfhiGpoes0yFA'
+};
+
+async function searchYouTube(query, personaKey) {
+    const apiKey = process.env.YOUTUBE_API_KEY;
+    if (!apiKey) {
+        console.warn("YOUTUBE_API_KEY is not set. Skipping YouTube search.");
+        return { myVideos: [], otherVideos: [] };
+    }
+
+    const otherKey = personaKey === 'hitesh' ? 'piyush' : 'hitesh';
+
+    // Search both channels in parallel
+    const [myResults, otherResults] = await Promise.all([
+        searchYouTubeChannel(query, CHANNEL_IDS[personaKey], personaKey, apiKey),
+        searchYouTubeChannel(query, CHANNEL_IDS[otherKey], otherKey, apiKey)
+    ]);
+
+    return {
+        myVideos: myResults.slice(0, 3),
+        otherVideos: otherResults.slice(0, 3)
+    };
+}
+
+/* ---------------------------------------------------------
+   EXPRESS SERVER CONFIG
+ --------------------------------------------------------- */
 
 const app = express();
 app.use(cors());
@@ -171,17 +239,36 @@ app.post('/api/chat', async (req, res) => {
         return res.status(400).json({ error: 'Prompt is required' });
     }
     const personaKey = (persona && PERSONAS[persona.toLowerCase()]) ? persona.toLowerCase() : 'hitesh';
-
+    
     try {
         const result = await runPersonaPipeline(prompt, personaKey);
-        res.json(result);
+        let myVideos = [];
+        let otherVideos = [];
+        if (result.searchQuery && result.searchQuery.trim()) {
+            console.log(`Searching YouTube for: "${result.searchQuery}" (persona: ${personaKey})`);
+            const ytResult = await searchYouTube(result.searchQuery, personaKey);
+            myVideos = ytResult.myVideos;
+            otherVideos = ytResult.otherVideos;
+        }
+        const otherKey = personaKey === 'hitesh' ? 'piyush' : 'hitesh';
+        res.json({
+            think: result.think,
+            output: result.output,
+            myVideos,
+            otherVideos,
+            otherPersona: otherKey
+        });
     } catch (error) {
         console.error("Pipeline error:", error);
         res.status(500).json({ error: error.message || 'Something went wrong' });
     }
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+if (!process.env.VERCEL) {
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => {
+        console.log(`🚀 Server running on http://localhost:${PORT}`);
+    });
+}
+
+export default app;
