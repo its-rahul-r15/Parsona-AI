@@ -239,7 +239,7 @@ app.post('/api/chat', async (req, res) => {
         return res.status(400).json({ error: 'Prompt is required' });
     }
     const personaKey = (persona && PERSONAS[persona.toLowerCase()]) ? persona.toLowerCase() : 'hitesh';
-    
+
     try {
         const result = await runPersonaPipeline(prompt, personaKey);
         let myVideos = [];
